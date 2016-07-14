@@ -8,13 +8,15 @@ module KmsAttrs
   module ClassMethods
     def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil, aws_default_region: nil, aws_access_key_id: nil, aws_secret_access_key: nil)
       include InstanceMethods
-      @aws_default_region = aws_default_region
-      @aws_access_key_id = aws_access_key_id
-      @aws_secret_access_key = aws_secret_access_key
       
       define_method "#{field}=" do |data|
+
+        default_region = aws_default_region || ENV['AWS_DEFAULT_REGION']
+        access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
+        secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
+
         key_id = set_key_id(key_id)
-        data_key = aws_generate_data_key(key_id, context_key, context_value)
+        data_key = aws_generate_data_key(default_region, access_key_id, secret_access_key, key_id, context_key, context_value)
         encrypted = encrypt_attr(data, data_key.plaintext)
         data_key.plaintext = nil
 
@@ -35,6 +37,11 @@ module KmsAttrs
       end
 
       define_method "#{field}_d" do
+
+        default_region = aws_default_region || ENV['AWS_DEFAULT_REGION']
+        access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
+        secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
+
         hash = get_hash(field)
         if hash
           if retain && plaintext = get_retained(field)
@@ -42,7 +49,7 @@ module KmsAttrs
           else
             plaintext = decrypt_attr(
               hash[:blob], 
-              aws_decrypt_key(hash[:key], context_key, context_value),
+              aws_decrypt_key(default_region, access_key_id, secret_access_key, hash[:key], context_key, context_value),
               hash[:iv]
             )
 
@@ -106,18 +113,18 @@ module KmsAttrs
       {iv: iv, data: cipher.update(data) + cipher.final}
     end
 
-    def aws_decrypt_key(key, context_key, context_value)
+    def aws_decrypt_key(region, access_key_id, secret_access_key, key, context_key, context_value)
       args = {ciphertext_blob: key}
-      aws_kms.decrypt(apply_context(args, context_key, context_value)).plaintext
+      aws_kms(region, access_key_id, secret_access_key).decrypt(apply_context(args, context_key, context_value)).plaintext
     end
 
-    def aws_kms
-      @kms ||= Aws::KMS::Client.new(region: @aws_default_region || ENV['AWS_DEFAULT_REGION'], access_key_id: @aws_access_key_id || ENV['AWS_ACCESS_KEY_ID'], secret_access_key: @aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY'])
+    def aws_kms(region, access_key_id, secret_access_key)
+      @kms ||= Aws::KMS::Client.new(region: region, access_key_id: access_key_id, secret_access_key: secret_access_key)
     end
 
-    def aws_generate_data_key(key_id, context_key, context_value)
+    def aws_generate_data_key(region, access_key_id, secret_access_key, key_id, context_key, context_value)
       args = {key_id: key_id, key_spec: 'AES_256'}
-      aws_kms.generate_data_key(apply_context(args, context_key, context_value))
+      aws_kms(region, access_key_id, secret_access_key).generate_data_key(apply_context(args, context_key, context_value))
     end
 
     def apply_context(args, key, value)
