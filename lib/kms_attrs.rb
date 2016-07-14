@@ -6,8 +6,11 @@ module KmsAttrs
   end
   
   module ClassMethods
-    def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil, client_options: {})
+    def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil, aws_default_region: nil, aws_access_key_id: nil, aws_secret_access_key: nil)
       include InstanceMethods
+      @aws_default_region = aws_default_region
+      @aws_access_key_id = aws_access_key_id
+      @aws_secret_access_key = aws_secret_access_key
       
       define_method "#{field}=" do |data|
         key_id = set_key_id(key_id)
@@ -109,7 +112,7 @@ module KmsAttrs
     end
 
     def aws_kms
-      @kms ||= Aws::KMS::Client.new(region: ENV['AWS_DEFAULT_REGION'])
+      @kms ||= Aws::KMS::Client.new(region: @aws_default_region || ENV['AWS_DEFAULT_REGION'], access_key_id: @aws_access_key_id || ENV['AWS_ACCESS_KEY_ID'], secret_access_key: @aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY'])
     end
 
     def aws_generate_data_key(key_id, context_key, context_value)
