@@ -16,6 +16,55 @@ module KmsAttrs
         secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
 
         key_id = set_key_id(key_id)
+        encrypted = aws_encrypt(default_region, access_key_id, secret_access_key, key_id, context_key, context_value, data)
+
+        if retain
+          set_retained(field, data)  
+        end
+        data = nil
+        self[field] = Base64.encode64(encrypted.ciphertext_blob)
+      end
+
+      define_method "#{field}" do
+        return read_attribute(field)
+      end
+
+      define_method "#{field}_d" do
+
+        default_region = aws_default_region || ENV['AWS_DEFAULT_REGION']
+        access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
+        secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
+
+        encrypted = Base64.decode64(read_attribute(field))
+        if encrypted
+          if retain && plaintext = get_retained(field)
+            plaintext
+          else
+            plaintext = aws_decrypt_key(default_region, access_key_id, secret_access_key, encrypted, context_key, context_value)
+
+            if retain
+              set_retained(field, plaintext)
+            end
+
+            plaintext
+          end
+        else
+          nil
+        end
+      end
+
+    end
+
+    def kms_attr_env(field, key_id:, retain: false, context_key: nil, context_value: nil, aws_default_region: nil, aws_access_key_id: nil, aws_secret_access_key: nil)
+      include InstanceMethods
+      
+      define_method "#{field}=" do |data|
+
+        default_region = aws_default_region || ENV['AWS_DEFAULT_REGION']
+        access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
+        secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
+
+        key_id = set_key_id(key_id)
         data_key = aws_generate_data_key(default_region, access_key_id, secret_access_key, key_id, context_key, context_value)
         encrypted = encrypt_attr(data, data_key.plaintext)
         data_key.plaintext = nil
@@ -120,6 +169,11 @@ module KmsAttrs
 
     def aws_kms(region, access_key_id, secret_access_key)
       @kms ||= Aws::KMS::Client.new(region: region, access_key_id: access_key_id, secret_access_key: secret_access_key)
+    end
+
+    def aws_encrypt(region, access_key_id, secret_access_key, key_id, context_key, context_value, plaintext)
+      args = {key_id: key_id, plaintext: plaintext}
+      aws_kms(region, access_key_id, secret_access_key).encrypt(apply_context(args, context_key, context_value))
     end
 
     def aws_generate_data_key(region, access_key_id, secret_access_key, key_id, context_key, context_value)
