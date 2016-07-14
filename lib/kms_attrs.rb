@@ -6,7 +6,7 @@ module KmsAttrs
   end
   
   module ClassMethods
-    def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil)
+    def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil, client_options: {})
       include InstanceMethods
       
       define_method "#{field}=" do |data|
