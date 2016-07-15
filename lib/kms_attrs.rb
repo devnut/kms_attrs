@@ -10,6 +10,10 @@ module KmsAttrs
       include InstanceMethods
       
       define_method "#{field}=" do |data|
+        if data.nil? == true
+          self[field] = nil
+          return self[field]
+        end
 
         default_region = aws_default_region || ENV['AWS_DEFAULT_REGION']
         access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
@@ -35,7 +39,10 @@ module KmsAttrs
         access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
         secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
 
-        encrypted = Base64.decode64(read_attribute(field))
+        unencrypted = read_attribute(field)
+        return nil if unencrypted.nil? == true
+        encrypted = Base64.decode64(unencrypted)
+
         if encrypted
           if retain && plaintext = get_retained(field)
             plaintext
