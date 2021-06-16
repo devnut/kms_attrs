@@ -126,7 +126,7 @@ module KmsAttrs
   module InstanceMethods
     def store_hash(field, data)
       @_hashes ||= {}
-      b_data = data.to_json
+      b_data = Marshal.dump(data)
       data64 = Base64.encode64(b_data)
       @_hashes[field] = data64
       self[field] = data64
@@ -136,7 +136,7 @@ module KmsAttrs
       @_hashes ||= {}
       hash = @_hashes[field] ||= read_attribute(field)
       if hash
-        JSON.parse(Base64.decode64(hash))
+        Marshal.load(Base64.decode64(hash))
       else
         nil
       end
