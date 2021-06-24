@@ -9,6 +9,7 @@ module KmsAttrs
     def kms_attr(field, key_id:, retain: false, context_key: nil, context_value: nil, aws_default_region: nil, aws_access_key_id: nil, aws_secret_access_key: nil)
       include InstanceMethods
       
+      
       define_method "#{field}=" do |data|
         if data.nil? == true
           self[field] = nil
@@ -73,7 +74,7 @@ module KmsAttrs
 
         key_id = set_key_id(key_id)
         data_key = aws_generate_data_key(default_region, access_key_id, secret_access_key, key_id, context_key, context_value)
-        encrypted = encrypt_attr(data, data_key.plaintext)
+        encrypted = encrypt_attr(data, data_key.plaintext, 'aes-256-gcm')
         data_key.plaintext = nil
 
         if retain
@@ -81,15 +82,11 @@ module KmsAttrs
         end
         data = nil
         
-        store_hash(field, {
-          key: data_key.ciphertext_blob,
-          iv: encrypted[:iv],
-          blob: encrypted[:data]
-        })
+        store_value(field, { :key => data_key.ciphertext_blob,  :blob => encrypted })
       end
 
       define_method "#{field}" do
-        get_hash(field)
+        get_value(field)
       end
 
       define_method "#{field}_d" do
@@ -98,15 +95,16 @@ module KmsAttrs
         access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
         secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
 
-        hash = get_hash(field)
-        if hash
+        #hash = get_hash(field)
+        value = get_value(field)
+        if value
           if retain && plaintext = get_retained(field)
             plaintext
           else
             plaintext = decrypt_attr(
               hash[:blob], 
               aws_decrypt_key(default_region, access_key_id, secret_access_key, hash[:key], context_key, context_value),
-              hash[:iv]
+              hash[:iv], 'aes-256-gcm'
             )
 
             if retain
@@ -141,6 +139,35 @@ module KmsAttrs
         nil
       end
     end
+    
+    def store_value(field, data)
+
+      @_hashes ||= {}
+      @_hashes[field] = data
+
+      key64 = Base64.encode64(data[:key])
+      self[field] = data[:blob]
+      self[field + "_key_id"] = data[:key]
+    end
+    
+    def get_value(field)
+      @_hashes ||= {}
+      hash = @_hashes[field]
+      blob = nil
+      key = nil
+      if hash == nil
+        blob = read_attribute(field)
+        key = read_attribute(field + "_key_id")
+        if key != nil
+          key = Base64.decode64(key)
+        end
+        if blob != nil
+          hash = { :blob => blob, :key => key }
+        end
+      end
+      
+      hash
+    end
 
     def get_retained(field)
       @_retained ||= {}
@@ -152,21 +179,51 @@ module KmsAttrs
       @_retained[field] = plaintext
     end
 
-    def decrypt_attr(data, key, iv)
-      decipher = OpenSSL::Cipher.new('AES-256-CBC')
-      decipher.decrypt
-      decipher.key = key
-      decipher.iv = iv
-      decipher.update(data) + decipher.final
+    def decrypt_attr(data, key, iv, algorithm=nil)
+      if algorithm == 'aes-256-gcm'
+        decipher = OpenSSL::Cipher.new('aes-256-gcm')
+        decipher.decrypt
+        rawData = Base64.decode64(data)
+        cipher_text = rawData.slice(12, rawData.length-28)
+        iv = rawData.slice(0, 12)
+        authTag = rawData.slice(rawData.length - 16, 16)
+        decipher.iv = iv
+        decipher.key = key
+        decipher.auth_data = ""
+        decipher.auth_tag = authTag
+        decrypted_data = (decipher.update(cipher_text) + decipher.final)
+        # Return decrypted content.
+        return decrypted_data        
+      else
+        decipher = OpenSSL::Cipher.new('AES-256-CBC')
+        decipher.decrypt
+        decipher.key = key
+        decipher.iv = iv
+        decipher.update(data) + decipher.final
+      end
     end
 
-    def encrypt_attr(data, key)
-      cipher = OpenSSL::Cipher.new('AES-256-CBC')
-      cipher.encrypt
+    def encrypt_attr(data, key, algorithm=nil)
+      if algorithm == 'aes-256-gcm'
+        cipher = OpenSSL::Cipher.new('aes-256-gcm')
+        cipher.encrypt
+        # Notice here the IV is set before the key. This is done in this order due to an issue with the Library
+        iv = cipher.random_iv
+        cipher.key = key
+        cipher.auth_data =""
+        encrypted_data = cipher.update(data)
+        encrypted_data  << cipher.final
+        # Return encrypted credentials Base64 encoded.
+        encoded_encrypted_data = Base64.strict_encode64(iv + encrypted_data + cipher.auth_tag) 
+        return encoded_encrypted_data
+      else
+        cipher = OpenSSL::Cipher.new('AES-256-CBC')
+        cipher.encrypt
 
-      cipher.key = key
-      iv = cipher.random_iv
-      {iv: iv, data: cipher.update(data) + cipher.final}
+        cipher.key = key
+        iv = cipher.random_iv
+        return {iv: iv, data: cipher.update(data) + cipher.final}
+      end
     end
 
     def aws_decrypt_key(region, access_key_id, secret_access_key, key, context_key, context_value)
