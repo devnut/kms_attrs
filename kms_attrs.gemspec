@@ -11,6 +11,6 @@ Gem::Specification.new do |s|
   s.license = 'GPLv3'
 
   s.add_runtime_dependency 'activerecord'
-  s.add_runtime_dependency 'aws-sdk-resources', '~> 2'
+  s.add_runtime_dependency 'aws-sdk-resources', '~> 3'
   s.add_development_dependency 'rspec'
 end
