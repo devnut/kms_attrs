@@ -95,16 +95,15 @@ module KmsAttrs
         access_key_id = aws_access_key_id || ENV['AWS_ACCESS_KEY_ID']
         secret_access_key = aws_secret_access_key || ENV['AWS_SECRET_ACCESS_KEY']
 
-        #hash = get_hash(field)
         value = get_value(field)
         if value
           if retain && plaintext = get_retained(field)
             plaintext
           else
             plaintext = decrypt_attr(
-              hash[:blob], 
-              aws_decrypt_key(default_region, access_key_id, secret_access_key, hash[:key], context_key, context_value),
-              hash[:iv], 'aes-256-gcm'
+              value[:blob], 
+              aws_decrypt_key(default_region, access_key_id, secret_access_key, value[:key], context_key, context_value),
+              nil, 'aes-256-gcm'
             )
 
             if retain
@@ -147,7 +146,7 @@ module KmsAttrs
 
       key64 = Base64.encode64(data[:key])
       self[field] = data[:blob]
-      self[field + "_key_id"] = data[:key]
+      self[(field.to_s + "_key_id").to_sym] = key64
     end
     
     def get_value(field)
@@ -157,7 +156,7 @@ module KmsAttrs
       key = nil
       if hash == nil
         blob = read_attribute(field)
-        key = read_attribute(field + "_key_id")
+        key = read_attribute((field.to_s + "_key_id").to_sym)
         if key != nil
           key = Base64.decode64(key)
         end
